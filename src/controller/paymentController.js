@@ -6,8 +6,8 @@ const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 dotenv.config();
 
-let productInfo = {};
-let userData = {};
+let productInfo;
+let userData;
 let userInfo;
 let totalAmount;
 const checkout = async (req, res) => {
@@ -15,15 +15,20 @@ const checkout = async (req, res) => {
     const { amount, userId, productDetails, userDetails } = req.body;
     totalAmount = Number(amount);
     userInfo = userId;
-    productInfo =
-      typeof productDetails === 'string'
-        ? JSON.parse(productDetails)
-        : productDetails;
+    productInfo = productDetails.map((product) => {
+      const parsedProductId =
+        typeof product.productId === 'string'
+          ? JSON.parse(product.productId)
+          : product.productId;
+      return {
+        ...parsedProductId,
+        quantity: product.quantity,
+      };
+    });
     userData =
       typeof userDetails === 'string' ? JSON.parse(userDetails) : userDetails;
-
     const options = {
-      line_items: productInfo.map((product) => ({
+      line_items: productDetails.map((product) => ({
         price_data: {
           currency: 'INR',
           product_data: {
@@ -38,91 +43,329 @@ const checkout = async (req, res) => {
       success_url: `${process.env.FRONTEND_URL_1}/paymentsuccess`,
       cancel_url: `${process.env.FRONTEND_URL_1}/paymentfailure`,
     };
-    const order = await stripe.checkout.sessions.create(options);
+    const session = await stripe.checkout.sessions.create(options);
 
     res.status(200).json({
       success: true,
-      order,
+      session,
     });
   } catch (error) {
     console.log(error);
   }
 };
+
 const paymentVerification = async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
   try {
-    const { userId, stripe_order_id, stripe_payment_id, productInfo } =
-      req.body;
-    console.log(req.body);
-    // const session = await stripe.checkout.sessions.retrieve(
-    //   req.body.session_id
-    // );
-    // console.log(session);
-    // if (session.payment_status === 'paid') {
-    //   // If the payment was successful, proceed with further actions like sending an email
-    //   const transport = nodemailer.createTransport({
-    //     host: 'smtp.ethereal.email',
-    //     port: 587,
-    //     secure: false,
-    //     auth: {
-    //       user: process.env.EMAIL,
-    //       pass: process.env.EMAIL_PASSWORD,
-    //     },
-    //   });
+    // Construct the event with the raw body and the Stripe signature
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+    // Retrieve the session from Stripe using the session ID
+    const session = await stripe.checkout.sessions.retrieve(
+      event.data.object.id
+    );
 
-    //   // Define email content using user and order data from the session
-    //   const mailOptions = {
-    //     from: process.env.EMAIL,
-    //     to: session.customer_details.email, // Using Stripe session's customer email
-    //     subject: 'Order Confirmation',
-    //     html: `
-    //       <html>
-    //         <body>
-    //           <h1>Order Confirmation</h1>
-    //           <p>Dear ${session.customer_details.name},</p>
-    //           <p>Thank you for your purchase. Your order of $${(
-    //             session.amount_total / 100
-    //           ).toFixed(2)} has been confirmed.</p>
-    //           <p>We have received your payment and will process your order soon.</p>
-    //           <h2>Shipping Address:</h2>
-    //           <p>${session.customer_details.address.line1}, ${
-    //       session.customer_details.address.city
-    //     }, ${session.customer_details.address.postal_code}</p>
-    //           <p>If you have any questions, feel free to contact us.</p>
-    //           <p>Best regards,<br>ShopIt.com Team</p>
-    //         </body>
-    //       </html>
-    //     `,
-    //   };
+    // Check if the payment was successful
+    if (session.payment_status === 'paid') {
+      // Define the stripe order and payment IDs
+      const stripe_order_id = session.id;
+      const stripe_payment_id = session.payment_intent;
+      const transport = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: {
+          user: process.env.EMAIL,
+          pass: process.env.EMAIL_PASSWORD,
+        },
+      });
 
-    //   // Send the confirmation email to the user
-    //   await transport.sendMail(mailOptions, (error, info) => {
-    //     if (error) {
-    //       return res.status(400).send(error);
-    //     } else {
-    //       return res.status(200).send({ success, msg: 'Order Confirm', info });
-    //     }
-    //   });
-    //   const userDetails = {
-    //     email: session.customer_details.email,
-    //     name: session.customer_details.name,
-    //   };
-    //   const payment = await Payment.create({
-    //     stripe_order_id,
-    //     stripe_payment_id,
-    //     user: userId,
-    //     productData: productInfo,
-    //     userData: userDetails,
-    //     totalAmount: session.amount_total,
-    //   });
-    //   await Cart.deleteMany({ user: userId });
-    //   res.status(200).send({ success: true, payment });
-    // } else {
-    //   res.status(400).json({
-    //     success: false,
-    //   });
-    // }
+      const mailOptions = {
+        from: process.env.EMAIL,
+        to: userData.userEmail,
+        subject: 'Order Confirm',
+        html: `<!DOCTYPE html>
+                <html>
+                  <head>
+                    <meta charset="UTF-8">
+                    <title>Order Confirmation</title>
+                    <style>
+                      body {
+                        font-family: Arial, sans-serif;
+                        font-size: 16px;
+                        line-height: 1.5;
+                        color: black;
+                      }
+                
+                      h1 {
+                        font-size: 24px;
+                        margin-bottom: 20px;
+                        color: black;
+                      }
+                
+                      table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin-bottom: 20px;
+                      }
+                         th {
+                text-align: left;
+                padding: 10px;
+                background-color: #eee;
+              }
+        
+              td {
+                padding: 10px;
+                border: 1px solid #ddd;
+              }
+        
+              .address {
+                margin-bottom: 20px;
+                color: black;
+
+              }
+        
+              .address h2 {
+                font-size: 20px;
+                margin-bottom: 10px;
+              }
+        
+              .address p {
+                margin: 0;
+              }
+         .thanks {
+                font-size: 18px;
+                margin-top: 20px;
+                color: black;
+
+              }
+        
+              .signature {
+                margin-top: 40px;
+                color: black;
+
+              }
+        
+              .signature p {
+                margin: 0;
+              }
+            </style>
+          </head>
+          <body>
+            <h1>Order Confirmation</h1>
+            <p style="color:black;">Dear <b>${userData.firstName} ${
+          userData.lastName
+        }</b>,</p>
+            <p>Thank you for your recent purchase on our website. We have received your payment of <b>₹${totalAmount}</b> and have processed your order.</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Product Name</th>
+                  <th>Quantity</th>
+                  <th>Price</th>
+                </tr>
+              </thead>
+              <tbody>
+               ${productInfo
+                 .map((product) => {
+                   return `
+                            <tr>
+                              <td>${product.productId.name}</td>
+                              <td>${product.quantity}</td>
+                              <td>₹${product.productId.price}</td>
+                            </tr>
+                          `;
+                 })
+                 .join('')}
+          <tr>
+          <td>Shipping Charge</td>
+          <td></td>
+          <td>₹100</td>
+           </tr>
+        <tr>
+          <td>Total</td>
+          <td></td>
+          <td>₹${totalAmount}</td>
+        </tr>
+              </tbody >
+            </table >
+            <div class="address">
+              <h2>Shipping Address</h2>
+              <p>${userData.firstName} ${userData.lastName}</p>
+              <p>${userData.address}</p>
+              <p>${userData.city}-${userData.zipCode}</p>
+              <p>${userData.userState}</p>
+            </div>
+            <p class="thanks">Thank you for choosing our website. If you have any questions or concerns, please don't hesitate to contact us.</p>
+            <div class="signature">
+              <p>Best regards,</p>
+            </div>
+          </body >
+        </html >
+  `,
+        text: `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Order Confirmation</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          font-size: 16px;
+          line-height: 1.5;
+          color: black;
+        }
+  
+        h1 {
+          font-size: 24px;
+          margin-bottom: 20px;
+          color: black;
+        }
+  
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 20px;
+        }
+               th {
+                text-align: left;
+                padding: 10px;
+                background-color: #eee;
+              }
+        
+              td {
+                padding: 10px;
+                border: 1px solid #ddd;
+              }
+        
+              .address {
+                margin-bottom: 20px;
+                color: black;
+
+              }
+        
+              .address h2 {
+                font-size: 20px;
+                margin-bottom: 10px;
+              }
+        
+              .address p {
+                margin: 0;
+              }
+        
+              .thanks {
+               font-size: 18px;
+                margin-top: 20px;
+                color: black;
+
+              }
+        
+              .signature {
+                margin-top: 40px;
+                color: black;
+
+              }
+        
+              .signature p {
+                margin: 0;
+              }
+            </style>
+          </head>
+          <body>
+            <h1>Order Confirmation</h1>
+            <p style="color:black;">Dear <b>${userData.firstName} ${
+          userData.lastName
+        }</b>,</p>
+            <p>Thank you for your recent purchase on our website. We have received your payment of <b>₹${totalAmount}</b> and have processed your order.</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Product Name</th>
+                  <th>Quantity</th>
+                  <th>Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${productInfo
+                  .map((product) => {
+                    return `
+                            <tr>
+                              <td>${product.productId.name}</td>
+                              <td>${product.quantity}</td>
+                              <td>₹${product.productId.price}</td>
+                            </tr>
+                          `;
+                  })
+                  .join('')}
+          <tr>
+          <td>Shipping Charge</td>
+          <td></td>
+          <td>₹100</td>
+        </tr>
+        <tr>
+          <td>Total</td>
+          <td></td>
+          <td>₹${totalAmount}</td>
+        </tr>
+         </tbody >
+            </table >
+            <div class="address">
+              <h2>Shipping Address</h2>
+              <p>${userData.firstName} ${userData.lastName}</p>
+              <p>${userData.address}</p>
+              <p>${userData.city}-${userData.zipCode}</p>
+              <p>${userData.userState}</p>
+            </div>
+            <p class="thanks">Thank you for choosing our website. If you have any questions or concerns, please don't hesitate to contact us.</p>
+            <div class="signature">
+              <p>Best regards,</p>
+            </div>
+          </body >
+        </html >
+  `,
+      };
+      await transport.sendMail(mailOptions, (error, info) => {
+        if (error) {
+          return res
+            .status(500)
+            .json({ message: 'Email could not be sent', error });
+        } else {
+          return res
+            .status(200)
+            .json({ message: 'Reset link sent to your email address', info });
+        }
+      });
+      // Create a payment record in the database
+      const payment = await Payment.create({
+        stripe_order_id,
+        stripe_payment_id,
+        user: userInfo,
+        productData: productInfo,
+        userData,
+        totalAmount: session.amount_total / 100,
+      });
+
+      if (!payment) {
+        console.log('Payment creation failed!');
+        return res
+          .status(500)
+          .json({ success: false, error: 'Payment creation failed' });
+      }
+
+      await Cart.deleteMany({ user: userInfo });
+      res.status(200).json({ success: true, payment });
+    } else {
+      res
+        .status(400)
+        .json({ success: false, message: 'Payment not successful' });
+    }
   } catch (error) {
-    console.log(error);
+    console.error('Error verifying Stripe signature:', error.message);
+    res.status(400).send(`Webhook Error: ${error.message}`);
   }
 };
 

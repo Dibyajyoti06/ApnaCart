@@ -24,6 +24,10 @@ const port = 5000;
 const app = express();
 
 app.use(cookieParser());
+app.use(
+  '/api/paymentverification',
+  bodyParser.raw({ type: 'application/json' })
+);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.urlencoded({ extended: true }));
@@ -51,9 +55,10 @@ app.use('/api/review', review);
 
 app.use('/api/admin', AdminRoute);
 
+app.use('/api/password', forgotPassword);
+
 app.use('/api', paymentRoute);
 
-app.use('/api/password', forgotPassword);
 app.use('/payment_success', (req, res) => {
   res.status(200).json({
     msg: 'Payment Successful',

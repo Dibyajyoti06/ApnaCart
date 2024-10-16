@@ -10,10 +10,12 @@ const PaymentSchema = new Schema(
       type: String,
       required: true,
     },
-    productData: {
-      type: Object,
-      required: true,
-    },
+    productData: [
+      {
+        type: Object,
+        required: true,
+      },
+    ],
     userData: {
       type: Object,
       required: true,

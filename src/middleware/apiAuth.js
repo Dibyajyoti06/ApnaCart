@@ -7,6 +7,11 @@ function checkOrigin(req, res, next) {
 
   const origin = req.headers.origin;
 
+  const isWebhook = req.path === '/api/paymentverification';
+  if (isWebhook) {
+    return next();
+  }
+
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');

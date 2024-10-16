@@ -12,9 +12,8 @@ const bodyParser = require('body-parser');
 dotenv.config();
 
 router.route('/checkout').post(checkout);
-router
-  .route('/paymentverification', bodyParser.raw({ type: 'application/json' }))
-  .post(paymentVerification);
+router.route('/paymentverification').post(paymentVerification);
+
 router.get('/getPreviousOrders', authUser, async (req, res) => {
   try {
     const data = await Payment.find({ user: req.user_id }).sort({
